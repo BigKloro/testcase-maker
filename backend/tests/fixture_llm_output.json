@@ -1,0 +1,120 @@
+{
+  "acceptance_criteria": [
+    {"id": "AC-1", "text": "Tombol 'Cek Limit dan Akad SIKP' tampil pada Step 1 halaman Initial Application Terms untuk pengajuan produk KUR"},
+    {"id": "AC-2", "text": "Tombol mengirim parameter Nik, Skema, dan Sektor"},
+    {"id": "AC-3", "text": "Jika response Code = '00', modal 'get_limit_sikp' tampil dan tombol 'Hitung Angsuran' aktif"},
+    {"id": "AC-4", "text": "Jika response Code != '00', modal error tampil"},
+    {"id": "AC-5", "text": "Response disimpan ke tabel trx_sikp_response dengan CreatedBy = 'Response_Cek_Limit_Dan_Akad'"},
+    {"id": "AC-6", "text": "Tombol tidak berlaku untuk produk KUK"}
+  ],
+  "groups": [
+    {
+      "group_label": "Tombol 'Cek Limit dan Akad SIKP' dan Validasi Tombol 'Hitung Angsuran'",
+      "test_cases": [
+        {
+          "title": "Memastikan tombol 'Cek Limit dan Akad SIKP' tampil di Step 1 halaman Initial Application Terms pada pengajuan KUR",
+          "case_class": "positive",
+          "priority": "High",
+          "type": "Functional",
+          "precondition": "Tersedia pengajuan produk KUR aktif di Step 1 - MSO; kolom 'Sektor Ekonomi' pada halaman Occupation Data - Applicant sudah terisi",
+          "test_steps": [
+            "Login PEGA menggunakan akun MSO",
+            "Buka pengajuan KUR di Step 1",
+            "Buka halaman Initial Application Terms",
+            "Cek keberadaan tombol 'Cek Limit dan Akad SIKP'"
+          ],
+          "expected_result": "Tombol dengan label 'Cek Limit dan Akad SIKP' tampil di Step 1 pada halaman Initial Application Terms",
+          "requirement_ref": "AC-1"
+        },
+        {
+          "title": "Klik tombol 'Hitung Angsuran' sebelum tombol 'Cek Limit dan Akad SIKP' diklik",
+          "case_class": "negative",
+          "priority": "High",
+          "type": "Functional",
+          "precondition": "Tersedia pengajuan produk KUR aktif di Step 1 - MSO yang belum pernah melakukan hit 'Cek Limit dan Akad SIKP'",
+          "test_steps": [
+            "Login PEGA menggunakan akun MSO",
+            "Buka pengajuan KUR di Step 1",
+            "Buka halaman Initial Application Terms",
+            "Klik tombol 'Hitung Angsuran' tanpa menekan tombol 'Cek Limit dan Akad SIKP'"
+          ],
+          "expected_result": "Tombol 'Hitung Angsuran' tidak menyala atau tidak dapat digunakan sehingga proses hitung angsuran tidak berjalan",
+          "requirement_ref": "AC-3"
+        },
+        {
+          "title": "Memastikan tombol 'Cek Limit dan Akad SIKP' mengirim parameter 'Nik', 'Skema', dan 'Sektor' sesuai data pengajuan",
+          "case_class": "positive",
+          "priority": "High",
+          "type": "Integration",
+          "precondition": "Tersedia pengajuan produk KUR aktif di Step 1 - MSO dengan data NIK dan Sektor Ekonomi terisi; tersedia akses log request SIKP",
+          "test_steps": [
+            "Login PEGA menggunakan akun MSO",
+            "Buka pengajuan KUR di Step 1",
+            "Buka halaman Initial Application Terms",
+            "Klik tombol 'Cek Limit dan Akad SIKP'",
+            "Cek log request yang dikirim ke SIKP"
+          ],
+          "expected_result": "Request terkirim dengan parameter 'Nik', 'Skema', dan 'Sektor' yang nilainya sama dengan data pengajuan",
+          "requirement_ref": "AC-2"
+        },
+        {
+          "title": "Klik tombol 'Cek Limit dan Akad SIKP' dua kali berturut-turut pada pengajuan yang sama",
+          "case_class": "boundary",
+          "priority": "Medium",
+          "type": "Functional",
+          "precondition": "Tersedia pengajuan produk KUR aktif di Step 1 - MSO; tersedia akses query ke tabel trx_sikp_response",
+          "test_steps": [
+            "Login PEGA menggunakan akun MSO",
+            "Buka pengajuan KUR di Step 1",
+            "Buka halaman Initial Application Terms",
+            "Klik tombol 'Cek Limit dan Akad SIKP'",
+            "Klik kembali tombol 'Cek Limit dan Akad SIKP' setelah modal ditutup",
+            "Query tabel trx_sikp_response berdasarkan nomor pengajuan"
+          ],
+          "expected_result": "Terdapat 2 record pada tabel trx_sikp_response untuk nomor pengajuan tersebut, keduanya dengan kolom 'CreatedBy' bernilai 'Response_Cek_Limit_Dan_Akad'",
+          "requirement_ref": "AC-5"
+        }
+      ]
+    },
+    {
+      "group_label": "Modal Response 'get_limit_sikp' dan Modal Error",
+      "test_cases": [
+        {
+          "title": "Memastikan modal 'get_limit_sikp' tampil ketika response Code bernilai '00'",
+          "case_class": "positive",
+          "priority": "High",
+          "type": "Functional",
+          "precondition": "Tersedia pengajuan produk KUR aktif di Step 1 - MSO dengan data debitur yang terdaftar di SIKP",
+          "test_steps": [
+            "Login PEGA menggunakan akun MSO",
+            "Buka pengajuan KUR di Step 1",
+            "Buka halaman Initial Application Terms",
+            "Klik tombol 'Cek Limit dan Akad SIKP'"
+          ],
+          "expected_result": "Modal dengan judul 'get_limit_sikp' tampil dan tombol 'Hitung Angsuran' berubah menjadi aktif",
+          "requirement_ref": "AC-3"
+        },
+        {
+          "title": "Hit tombol 'Cek Limit dan Akad SIKP' dengan response Code tidak sama dengan '00'",
+          "case_class": "negative",
+          "priority": "High",
+          "type": "Functional",
+          "precondition": "Tersedia pengajuan produk KUR aktif di Step 1 - MSO dengan data debitur yang menghasilkan response Code selain '00' dari SIKP",
+          "test_steps": [
+            "Login PEGA menggunakan akun MSO",
+            "Buka pengajuan KUR di Step 1",
+            "Buka halaman Initial Application Terms",
+            "Klik tombol 'Cek Limit dan Akad SIKP'"
+          ],
+          "expected_result": "Modal error tampil dan tombol 'Hitung Angsuran' tetap dalam keadaan tidak aktif",
+          "requirement_ref": "AC-4"
+        }
+      ]
+    }
+  ],
+  "notes": [
+    {"kind": "correction", "label": "Label tombol", "detail": "AC menulis 'Cek Limit dan akad'. Test case menggunakan 'Cek Limit dan Akad SIKP' sesuai label yang dideskripsikan pada requirement."},
+    {"kind": "assumption", "label": "Asumsi 1", "detail": "Modal sukses dan modal error diasumsikan dua fungsi terpisah karena judul modalnya berbeda. Perlu dikonfirmasi ke BA."},
+    {"kind": "assumption", "label": "Asumsi 2", "detail": "Role yang menjalankan pengajuan diasumsikan MSO karena AC tidak menyebut role."}
+  ]
+}

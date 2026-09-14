@@ -1,0 +1,7 @@
+@import "tailwindcss";
+
+textarea,
+input,
+select {
+  font: inherit;
+}

@@ -1,0 +1,76 @@
+{
+  "type": "doc",
+  "version": 1,
+  "content": [
+    {
+      "type": "heading",
+      "attrs": { "level": 3 },
+      "content": [{ "type": "text", "text": "Accaptance Criteria :" }]
+    },
+    {
+      "type": "mediaSingle",
+      "content": [{ "type": "media", "attrs": { "id": "abc", "type": "file" } }]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        { "type": "text", "text": "Tombol " },
+        { "type": "text", "text": "'Cek Limit dan akad'", "marks": [{ "type": "strong" }] },
+        { "type": "text", "text": " ditambahkan di Step 1." }
+      ]
+    },
+    {
+      "type": "table",
+      "content": [
+        {
+          "type": "tableRow",
+          "content": [
+            { "type": "tableHeader", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Kolom" }] }] },
+            { "type": "tableHeader", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Keterangan" }] }] }
+          ]
+        },
+        {
+          "type": "tableRow",
+          "content": [
+            { "type": "tableCell", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Kel_Sektor" }] }] },
+            { "type": "tableCell", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "1 = Produksi, 2 = Perdagangan Non Ekspor" }] }] }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "bulletList",
+      "content": [
+        { "type": "listItem", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Akad ke 1 -> bunga efektif = 6%" }] }] },
+        {
+          "type": "listItem",
+          "content": [
+            { "type": "paragraph", "content": [{ "type": "text", "text": "Akad ke 2 -> bunga efektif = 7%" }] },
+            {
+              "type": "bulletList",
+              "content": [
+                { "type": "listItem", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "subsidi bunga = 4,5%" }] }] }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "someFutureMacroNobodyHasSeen",
+      "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Teks di dalam node tak dikenal" }] }]
+    },
+    { "type": "rule" },
+    {
+      "type": "paragraph",
+      "content": [{ "type": "inlineCard", "attrs": { "url": "https://example.com/spec" } }]
+    },
+    {
+      "type": "mediaGroup",
+      "content": [
+        { "type": "media", "attrs": { "id": "def", "type": "file" } },
+        { "type": "media", "attrs": { "id": "ghi", "type": "file" } }
+      ]
+    }
+  ]
+}

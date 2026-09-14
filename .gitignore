@@ -1,0 +1,12 @@
+backend/.venv/
+backend/.env
+__pycache__/
+*.pyc
+frontend/node_modules/
+frontend/dist/
+.DS_Store
+
+# Real client workbooks: live Jira links, colleagues' names, defect notes, project number.
+# Local reference for the style-fidelity comparison. Never publish.
+excel_format/
+*.xlsx
