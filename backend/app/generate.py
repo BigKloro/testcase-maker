@@ -1,4 +1,4 @@
-"""Prompt assembly, Claude call, server-side validation, one retry, and derivation
+cloudflared tunnel --url http://localhost:8000"""Prompt assembly, Claude call, server-side validation, one retry, and derivation
 of ids / RTM / stats. This file plus prompts/sit_style_v1.md is the product."""
 
 from __future__ import annotations
