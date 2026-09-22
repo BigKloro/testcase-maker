@@ -37,6 +37,10 @@ One Pydantic definition per concept serves as the API contract, the LLM output s
 
 ## Run it locally
 
+**Windows, one step:** double-click `run.bat`. First run creates the backend virtualenv, installs both sides, and opens two terminal windows plus the browser at http://127.0.0.1:5173. Without an `ANTHROPIC_API_KEY` in `backend/.env` it starts in demo mode automatically. `stop.bat` shuts both servers down.
+
+Manual setup, or macOS/Linux:
+
 ```bash
 # backend
 cd backend
