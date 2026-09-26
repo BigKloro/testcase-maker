@@ -13,7 +13,7 @@ Built against the real SIT template used on a PEGA core banking delivery project
 1. You paste acceptance criteria, name the system under test (PEGA, T24, CardPerfect, Web App, REST API), set the TC ID prefix and language.
 2. One Claude call with a schema-constrained output returns acceptance criteria, functional groups, and cases classified positive / negative / boundary.
 3. The server renumbers, orders positives first, maps the internal class onto the template's two-value Pos/Neg column, derives the RTM from the groups, and computes coverage stats.
-4. You edit inline, delete weak cases, reorder, regenerate a single case with the rest of the script as context.
+4. You edit inline, add, duplicate, delete or reorder cases, and regenerate a single case with the rest of the script as context. Every edit can be undone (Ctrl+Z).
 5. You export: XLSX with RTM, Test Script, Defect List and Note sheets, or a flat CSV of the Test Script sheet.
 
 Coverage is reported, not assumed. Any acceptance criterion that produced no case is surfaced as a warning in the UI. Assumptions the model had to make land on the Note sheet as questions for the BA.
@@ -28,7 +28,7 @@ Coverage is reported, not assumed. Any acceptance criterion that produced no cas
 | Generation | Claude API, structured output, `claude-opus-5` by default |
 | Frontend | React 19, Vite 7, Tailwind 4, TypeScript |
 | Export | openpyxl |
-| State | Browser session only. No database, no auth, no save. |
+| State | Browser `localStorage` only (survives closing the tab, cleared with "New script"). No database, no auth. |
 | Deploy | Hetzner VPS, PM2 + nginx |
 
 One Pydantic definition per concept serves as the API contract, the LLM output schema, and the export validator.
@@ -180,7 +180,7 @@ Honest about what has and has not been measured.
 | Jira fetch end to end: bare key, pasted browse URL, 404, 400, 501, warning shown in the UI | Verified against a local stub serving a real-shaped payload |
 | Jira fetch against live Atlassian | Not yet run. Needs an API token; the connector proved the account and scope work, the app's own call path did not. |
 | All three endpoints over HTTP, plus error envelopes | Verified by curl against a running server |
-| Full browser flow: generate, inline edit, delete, reorder, regenerate, both exports, session persistence | Verified headless, no console errors |
+| Full browser flow: generate, inline edit, add/duplicate/delete/reorder, undo/redo, filters, regenerate, coverage jump, both exports, persistence, dark mode, 390px mobile | Verified headless (Playwright), no console errors |
 | Export opens with correct sheets, headers, formulas and merges | Verified by reading the generated workbook back |
 | **Generation quality against real Claude** | **Not yet run.** Needs an `ANTHROPIC_API_KEY`. Everything above was exercised against the fixture in mock mode. |
 | Style fidelity diff against the hand-written script | Not yet run. Blocked on the same thing. |
@@ -227,7 +227,8 @@ The PRD left these open. Each was decided one way; each is cheap to change.
 - Class is edited as `positive` / `negative` / `boundary`, and Pos/Neg is shown read-only beneath it, derived. Editing the exported value directly would let the two disagree.
 - Test steps are edited as one numbered textarea and parsed back into the array on change. A per-step row editor was more UI than the job needs.
 - Every edit re-runs the full derivation in the browser: renumbering, Pos/Neg, RTM totals, coverage stats. Delete a case and the IDs below it close up immediately.
-- Delete asks for confirmation; regenerate asks for an optional instruction. Both use native dialogs.
+- Delete happens immediately with an Undo toast instead of a confirm dialog; the whole script has an undo/redo history (50 steps, typing in one cell collapses into one step). Regenerate opens a modal with an optional instruction and quick presets.
+- Results are split into tabs: Script (summary cards, filterable table), Coverage (each AC with the cases citing it, click to jump), Notes (BA questions, editable), Export. Light, dark and system themes.
 - Groups can be relabelled and cases reordered within a group. Moving a case between groups, adding a blank case, and reordering groups are not implemented.
 - Export metadata (project name, number, created by) lives in the export panel rather than the input form, since it is only needed at the end.
 - The demo warning about real client requirements is always visible.

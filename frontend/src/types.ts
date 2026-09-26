@@ -12,6 +12,8 @@ export const PRIORITIES: Priority[] = ["High", "Medium", "Low"];
 export const TEST_TYPES: TestType[] = ["Functional", "Non-Functional", "Regression", "Integration"];
 
 export interface TestCase {
+  /** Client-only stable key for React rows; stripped before any request. */
+  uid?: string;
   tc_id: string;
   title: string;
   pos_neg: PosNeg;
@@ -29,6 +31,7 @@ export interface TestCase {
 }
 
 export interface Group {
+  uid?: string;
   group_no: number;
   group_label: string;
   req_no: string;
