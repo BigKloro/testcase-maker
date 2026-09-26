@@ -10,3 +10,6 @@ frontend/dist/
 # Local reference for the style-fidelity comparison. Never publish.
 excel_format/
 *.xlsx
+
+# Local run logs
+*.log

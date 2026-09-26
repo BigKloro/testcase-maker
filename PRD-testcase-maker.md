@@ -5,7 +5,7 @@ Author: Darrent Matthew Chandra
 Status: Draft v1.1 (portfolio project)
 Date: 13 September 2026
 
-Schema and export layout in this document are derived from real SIT scripts the author produced on PEGA core banking delivery at an Indonesian bank (projects DEMO-5348/5349, DEMO-5385/5823). The tool is built to reproduce that exact artifact, not a generic test case table.
+Schema and export layout in this document are derived from real SIT scripts the author produced on a PEGA core banking delivery project at an Indonesian bank. The tool is built to reproduce that exact artifact, not a generic test case table.
 
 ---
 
