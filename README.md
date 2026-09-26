@@ -2,7 +2,7 @@
 
 **AI-powered SIT/UAT test case generator.** Paste a requirement, get a grouped test script plus a matching RTM, review and edit it in the browser, export the four-sheet workbook a tester pastes straight into the project script.
 
-Built against the real SIT template used on PEGA core banking delivery at an Indonesian bank. The schema is a one-to-one model of that workbook, not a generic test case table.
+Built against the real SIT template used on a PEGA core banking delivery project at an Indonesian bank. The schema is a one-to-one model of that workbook, not a generic test case table.
 
 > Framing: **first draft in under a minute, you review.** The tool does transcription and systematic case derivation. It does not replace the QA engineer, and it does not know your domain rules.
 
