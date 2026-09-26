@@ -5,8 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>TestCase Maker</title>
+    <script>
+      // Apply the saved theme before first paint so dark mode doesn't flash white.
+      try {
+        var t = localStorage.getItem("testcase-maker:theme") || "system";
+        if (t === "system") t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        document.documentElement.dataset.theme = t;
+      } catch (e) {}
+    </script>
   </head>
-  <body class="bg-slate-50 text-slate-800">
+  <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

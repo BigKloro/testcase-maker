@@ -1,7 +1,7 @@
 import type { CaseClass, ExportMeta, GenerateRequest, GenerationResult, Health, JiraTicket, TestCase } from "./types";
 
-async function post<T>(path: string, body: unknown): Promise<T> {
-  const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+async function post<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
+  const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal });
   if (!r.ok) throw new Error(await errorText(r));
   return r.json();
 }
@@ -26,23 +26,41 @@ export const getHealth = () => get<Health>("/api/v1/health");
 
 export const fetchJira = (key: string) => get<JiraTicket>(`/api/v1/jira?key=${encodeURIComponent(key.trim())}`);
 
-export const generate = (req: GenerateRequest) => post<GenerationResult>("/api/v1/generate", req);
+export const generate = async (req: GenerateRequest, signal?: AbortSignal) => withUids(await post<GenerationResult>("/api/v1/generate", req, signal));
 
 export const regenerateCase = (tc_id: string, requirement_text: string, instruction: string | null, result: GenerationResult) =>
-  post<TestCase>("/api/v1/regenerate-case", { tc_id, requirement_text, instruction, result });
+  post<TestCase>("/api/v1/regenerate-case", { tc_id, requirement_text, instruction, result: stripUids(result) });
+
+// ---------------------------------------------------------------------------
+// Client-only row keys. tc_id changes on every move/delete, so React needs its own stable key.
+// ---------------------------------------------------------------------------
+export const newUid = () => Math.random().toString(36).slice(2, 10);
+
+export const withUids = (r: GenerationResult): GenerationResult => ({
+  ...r,
+  groups: r.groups.map((g) => ({ ...g, uid: g.uid ?? newUid(), test_cases: g.test_cases.map((c) => ({ ...c, uid: c.uid ?? newUid() })) })),
+});
+
+export const stripUids = (r: GenerationResult): GenerationResult => ({
+  ...r,
+  groups: r.groups.map(({ uid: _g, ...g }) => ({ ...g, test_cases: g.test_cases.map(({ uid: _c, ...c }) => c) })),
+});
 
 export async function exportFile(format: "xlsx" | "csv", meta: ExportMeta, result: GenerationResult): Promise<void> {
   const r = await fetch("/api/v1/export", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ format, ...meta, result }),
+    body: JSON.stringify({ format, ...meta, result: stripUids(result) }),
   });
   if (!r.ok) throw new Error(await errorText(r));
   const name = /filename="([^"]+)"/.exec(r.headers.get("Content-Disposition") ?? "")?.[1] ?? `test-script.${format}`;
   const url = URL.createObjectURL(await r.blob());
   const a = Object.assign(document.createElement("a"), { href: url, download: name });
+  document.body.append(a);
   a.click();
-  URL.revokeObjectURL(url);
+  a.remove();
+  // Revoking in the same tick can cancel the download in Firefox.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 /** Re-derive ids, Pos/Neg, RTM totals and stats after an edit (mirrors backend finalize()). */

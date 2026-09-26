@@ -1,111 +1,142 @@
-import { useEffect, useState } from "react";
-import { exportFile, fetchJira, generate, getHealth, recompute, regenerateCase } from "./api";
-import { EMPTY, SAMPLES } from "./samples";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { exportFile, fetchJira, generate, getHealth, recompute, regenerateCase, withUids } from "./api";
+import { InputPanel, MIN_REQ, PREFIX_RE } from "./components/InputPanel";
+import { RegenerateModal } from "./components/RegenerateModal";
+import { CoverageView, ExportView, NotesView, SummaryCards } from "./components/ResultViews";
+import { EmptyState, ErrorAlert, GeneratingState, WarningList } from "./components/States";
+import { TopBar } from "./components/TopBar";
+import { useElapsed, useHistory, useTheme } from "./hooks";
+import { EMPTY } from "./samples";
 import { ScriptTable } from "./ScriptTable";
-import { PRIORITIES, TEST_TYPES, type ExportMeta, type GenerateRequest, type GenerationResult, type NoteKind } from "./types";
+import type { ExportMeta, GenerateRequest, GenerationResult, Health, TestCase } from "./types";
+import { Badge, Button, Modal, Tabs, useToast } from "./ui";
 
-const SUT_OPTIONS = ["PEGA", "T24", "CardPerfect", "Web App", "REST API"];
-const NOTE_TITLES: Record<NoteKind, string> = {
-  correction: "Corrections against the AC text",
-  assumption: "Assumptions to confirm with the BA",
-  dedup: "Deduplication",
-  source: "Source",
-};
-const STORAGE = "testcase-maker:v1";
+const STORAGE = "testcase-maker:v2";
+const LEGACY_STORAGE = "testcase-maker:v1"; // sessionStorage, before results survived closing the tab
+const EMPTY_META: ExportMeta = { project_name: "", project_no: "", created_by: "" };
 
-function load(): { form: GenerateRequest; result: GenerationResult | null; meta: ExportMeta } {
+type Saved = { form: GenerateRequest; result: GenerationResult | null; meta: ExportMeta };
+type TabId = "script" | "coverage" | "notes" | "export";
+
+/** Restore the last session. Anything malformed (older shape, hand-edited storage) falls back to empty. */
+function load(): Saved {
+  const empty: Saved = { form: EMPTY, result: null, meta: EMPTY_META };
   try {
-    const s = sessionStorage.getItem(STORAGE);
-    if (s) return JSON.parse(s);
+    const raw = localStorage.getItem(STORAGE) ?? sessionStorage.getItem(LEGACY_STORAGE);
+    if (!raw) return empty;
+    const s = JSON.parse(raw);
+    const r = s?.result;
+    return {
+      form: typeof s?.form?.requirement_text === "string" ? { ...EMPTY, ...s.form } : EMPTY,
+      result: r && Array.isArray(r.groups) && Array.isArray(r.acceptance_criteria) && r.stats ? withUids(r) : null,
+      meta: { ...EMPTY_META, ...s?.meta },
+    };
   } catch {
-    /* ignore */
+    return empty;
   }
-  return { form: EMPTY, result: null, meta: { project_name: "", project_no: "", created_by: "" } };
 }
 
-const field = "w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm focus:border-sky-500 focus:outline-none";
-const label = "block text-xs font-medium text-slate-600";
+const isEditable = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
 
 export default function App() {
-  const initial = load();
-  const [form, setForm] = useState<GenerateRequest>(initial.form);
-  const [result, setResult] = useState<GenerationResult | null>(initial.result);
-  const [meta, setMeta] = useState<ExportMeta>(initial.meta);
+  const [initial] = useState(load);
+  const [form, setForm] = useState(initial.form);
+  const history = useHistory<GenerationResult | null>(initial.result);
+  const result = history.value;
+  const [meta, setMeta] = useState(initial.meta);
+  const [health, setHealth] = useState<Health | null>(null);
+  const [theme, setTheme] = useTheme();
   const [busy, setBusy] = useState(false);
-  const [elapsed, setElapsed] = useState(0);
+  const elapsed = useElapsed(busy);
   const [error, setError] = useState<string | null>(null);
-  const [regenBusy, setRegenBusy] = useState<string | null>(null);
-  const [showAc, setShowAc] = useState(false);
-  const [jiraOn, setJiraOn] = useState(false);
-  const [jiraKey, setJiraKey] = useState("");
-  const [jiraBusy, setJiraBusy] = useState(false);
   const [notice, setNotice] = useState<string[]>([]);
+  const [collapsed, setCollapsed] = useState(!!initial.result);
+  const [tab, setTab] = useState<TabId>("script");
+  const [regenTarget, setRegenTarget] = useState<TestCase | null>(null);
+  const [regenBusy, setRegenBusy] = useState<string | null>(null);
+  const [focusUid, setFocusUid] = useState<string | null>(null);
+  const [confirmNew, setConfirmNew] = useState(false);
+  const abort = useRef<AbortController | null>(null);
+  const latest = useRef(result);
+  latest.current = result;
+  const toast = useToast();
 
   useEffect(() => {
-    sessionStorage.setItem(STORAGE, JSON.stringify({ form, result, meta }));
+    try {
+      localStorage.setItem(STORAGE, JSON.stringify({ form, result, meta }));
+    } catch {
+      /* storage full or blocked: the session still works, it just won't survive a reload */
+    }
   }, [form, result, meta]);
 
   // Jira control only appears when the server has credentials. The public demo has none.
   useEffect(() => {
     getHealth()
-      .then((h) => setJiraOn(h.jira))
-      .catch(() => setJiraOn(false));
+      .then(setHealth)
+      .catch(() => setHealth(null));
   }, []);
 
-  useEffect(() => {
-    if (!busy) return;
-    setElapsed(0);
-    const t = setInterval(() => setElapsed((e) => e + 1), 1000);
-    return () => clearInterval(t);
-  }, [busy]);
+  const set = (r: GenerationResult, key?: string) => history.set(r, key);
 
-  const set = <K extends keyof GenerateRequest>(k: K, v: GenerateRequest[K]) => setForm((f) => ({ ...f, [k]: v }));
-  const nullable = (v: string) => (v.trim() === "" ? null : v);
-
-  async function onFetchJira() {
-    if (!jiraKey.trim()) return;
-    setJiraBusy(true);
+  async function onFetchJira(key: string) {
     setError(null);
     setNotice([]);
     try {
-      const t = await fetchJira(jiraKey);
+      const t = await fetchJira(key);
       setForm((f) => ({ ...f, story_key: t.story_key, story_title: t.story_title, story_url: t.story_url, requirement_text: t.requirement_text }));
       setNotice(t.warnings);
+      toast(`Imported ${t.story_key}`, { tone: "success" });
     } catch (e) {
       setError(String((e as Error).message));
-    } finally {
-      setJiraBusy(false);
     }
   }
 
   async function onGenerate() {
+    if (busy || form.requirement_text.trim().length < MIN_REQ || !form.system_under_test.trim() || !PREFIX_RE.test(form.req_prefix)) return;
+    const ac = new AbortController();
+    abort.current = ac;
     setBusy(true);
     setError(null);
     try {
-      const req = { ...form, story_key: nullable(form.story_key ?? ""), story_title: nullable(form.story_title ?? ""), story_url: nullable(form.story_url ?? "") };
-      setResult(await generate(req));
+      const nullable = (v: string | null) => (v?.trim() ? v : null);
+      const r = await generate({ ...form, story_key: nullable(form.story_key), story_title: nullable(form.story_title), story_url: nullable(form.story_url) }, ac.signal);
+      history.set(r); // not reset: undo brings back the previous script
       setMeta((m) => ({ ...m, project_name: m.project_name || form.story_title || "" }));
+      setCollapsed(true);
+      setTab("script");
+      toast(`Generated ${r.stats.total_cases} test cases`, { tone: "success" });
     } catch (e) {
-      setError(String((e as Error).message));
+      if ((e as Error).name === "AbortError") toast("Generation cancelled");
+      else setError(String((e as Error).message));
     } finally {
+      abort.current = null;
       setBusy(false);
     }
   }
+  const generateRef = useRef(onGenerate);
+  generateRef.current = onGenerate;
 
-  async function onRegenerate(tc_id: string) {
-    if (!result) return;
-    const instruction = prompt(`Regenerate ${tc_id}. Optional instruction for the model (e.g. "make it a boundary case on the max amount"):`, "");
-    if (instruction === null) return;
-    setRegenBusy(tc_id);
+  async function onRegenerate(instruction: string) {
+    const target = regenTarget;
+    if (!target || !result) return;
+    setRegenTarget(null);
+    setRegenBusy(target.tc_id);
     setError(null);
     try {
-      const fresh = await regenerateCase(tc_id, form.requirement_text, instruction || null, result);
-      setResult(
+      const fresh = await regenerateCase(target.tc_id, form.requirement_text, instruction || null, result);
+      // The user may have kept editing while this ran, so patch the latest script, matching by uid.
+      const now = latest.current;
+      if (!now || !now.groups.some((g) => g.test_cases.some((c) => c.uid === target.uid))) {
+        toast(`${target.tc_id} was removed before the new version arrived`, { tone: "error" });
+        return;
+      }
+      history.set(
         recompute({
-          ...result,
-          groups: result.groups.map((g) => ({ ...g, test_cases: g.test_cases.map((c) => (c.tc_id === tc_id ? fresh : c)) })),
+          ...now,
+          groups: now.groups.map((g) => ({ ...g, test_cases: g.test_cases.map((c) => (c.uid === target.uid ? { ...fresh, uid: target.uid } : c)) })),
         }),
       );
+      toast(`${target.tc_id} regenerated`, { tone: "success", action: { label: "Undo", onClick: history.undo } });
     } catch (e) {
       setError(String((e as Error).message));
     } finally {
@@ -118,270 +149,150 @@ export default function App() {
     setError(null);
     try {
       await exportFile(format, meta, result);
+      toast(`${format.toUpperCase()} downloaded`, { tone: "success" });
     } catch (e) {
       setError(String((e as Error).message));
     }
   }
 
+  function onNewScript() {
+    setConfirmNew(false);
+    abort.current?.abort();
+    setForm(EMPTY);
+    history.reset(null);
+    setMeta(EMPTY_META);
+    setError(null);
+    setNotice([]);
+    setCollapsed(false);
+    setTab("script");
+  }
+
+  const onFocused = useCallback(() => setFocusUid(null), []);
+
+  // Keyboard: Ctrl/Cmd+Enter generates from the input; Ctrl+Z / Ctrl+Shift+Z undo script edits
+  // (inside a text field the browser's own undo applies instead).
+  const { undo, redo } = history;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey;
+      if (!mod) return;
+      if (e.key === "Enter" && !collapsed) {
+        e.preventDefault();
+        generateRef.current();
+      } else if (!isEditable(e.target) && (e.key === "z" || e.key === "Z" || e.key === "y")) {
+        e.preventDefault();
+        if (e.key === "y" || e.shiftKey) redo();
+        else undo();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [collapsed, undo, redo]);
+
   const s = result?.stats;
 
   return (
-    <div className="mx-auto max-w-[1600px] px-4 py-6">
-      <header className="mb-5 flex flex-wrap items-end justify-between gap-2">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">TestCase Maker</h1>
-          <p className="text-sm text-slate-600">SIT/UAT test script from a requirement. First draft in a minute, you review. Exports the real 4-sheet workbook.</p>
-        </div>
-        <p className="rounded bg-amber-100 px-2 py-1 text-xs text-amber-900">Public demo. Do not paste real client requirements.</p>
-      </header>
+    <div className="min-h-screen">
+      <TopBar health={health} theme={theme} onTheme={setTheme} onNew={() => setConfirmNew(true)} canReset={!!result || form.requirement_text !== ""} />
 
-      {/* ---------------- input ---------------- */}
-      <section className="mb-6 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="mb-3 flex flex-wrap items-center gap-2">
-          <span className="text-xs text-slate-500">Load a sample:</span>
-          {SAMPLES.map((smp) => (
-            <button key={smp.label} type="button" onClick={() => setForm(smp.req)} className="rounded border border-slate-300 px-2 py-0.5 text-xs hover:bg-slate-100">
-              {smp.label}
-            </button>
-          ))}
-          {jiraOn && (
-            <div className="ml-auto flex items-center gap-1">
-              <input
-                className="w-56 rounded border border-slate-300 px-2 py-0.5 text-xs focus:border-sky-500 focus:outline-none"
-                value={jiraKey}
-                onChange={(e) => setJiraKey(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && onFetchJira()}
-                placeholder="DEMO-5385 or a browse URL"
-              />
-              <button
-                type="button"
-                onClick={onFetchJira}
-                disabled={jiraBusy || !jiraKey.trim()}
-                className="rounded bg-slate-700 px-2 py-0.5 text-xs font-medium text-white hover:bg-slate-800 disabled:bg-slate-300"
-              >
-                {jiraBusy ? "Fetching…" : "Fetch from Jira"}
-              </button>
-            </div>
-          )}
-        </div>
-        <div className="grid gap-3 lg:grid-cols-[2fr_1fr]">
-          <div>
-            <label className={label}>Requirement / user story / acceptance criteria</label>
-            <textarea
-              className={`${field} min-h-[220px] font-mono text-xs leading-relaxed`}
-              value={form.requirement_text}
-              onChange={(e) => set("requirement_text", e.target.value)}
-              placeholder="Paste the Jira description or AC list here (40 to 20,000 characters)."
-              maxLength={20000}
-            />
-            <div className="mt-1 text-right text-[11px] text-slate-400">{form.requirement_text.length} / 20000</div>
-          </div>
-          <div className="grid grid-cols-2 gap-2 content-start">
-            <div className="col-span-2">
-              <label className={label}>System under test</label>
-              <input className={field} list="sut" value={form.system_under_test} onChange={(e) => set("system_under_test", e.target.value)} />
-              <datalist id="sut">
-                {SUT_OPTIONS.map((o) => (
-                  <option key={o} value={o} />
-                ))}
-              </datalist>
-            </div>
-            <div>
-              <label className={label}>Story key</label>
-              <input className={field} value={form.story_key ?? ""} onChange={(e) => set("story_key", e.target.value)} placeholder="DEMO-5385" />
-            </div>
-            <div>
-              <label className={label}>TC ID prefix (first group)</label>
-              <input className={field} value={form.req_prefix} onChange={(e) => set("req_prefix", e.target.value.toUpperCase())} pattern="TC-\d{2}" placeholder="TC-01" />
-            </div>
-            <div className="col-span-2">
-              <label className={label}>Story title</label>
-              <input className={field} value={form.story_title ?? ""} onChange={(e) => set("story_title", e.target.value)} />
-            </div>
-            <div className="col-span-2">
-              <label className={label}>Story URL (goes to the Note sheet)</label>
-              <input className={field} value={form.story_url ?? ""} onChange={(e) => set("story_url", e.target.value)} placeholder="https://…/browse/KEY-123" />
-            </div>
-            <div>
-              <label className={label}>Language</label>
-              <select className={field} value={form.language} onChange={(e) => set("language", e.target.value as GenerateRequest["language"])}>
-                <option value="id">Bahasa Indonesia</option>
-                <option value="en">English</option>
-              </select>
-            </div>
-            <div>
-              <label className={label}>Target case count (soft)</label>
-              <input
-                className={field}
-                type="number"
-                min={1}
-                max={120}
-                value={form.target_case_count ?? ""}
-                onChange={(e) => set("target_case_count", e.target.value ? Number(e.target.value) : null)}
-                placeholder="model decides"
-              />
-            </div>
-            <div>
-              <label className={label}>Default priority</label>
-              <select className={field} value={form.default_priority} onChange={(e) => set("default_priority", e.target.value as GenerateRequest["default_priority"])}>
-                {PRIORITIES.map((p) => (
-                  <option key={p}>{p}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className={label}>Default type</label>
-              <select className={field} value={form.default_type} onChange={(e) => set("default_type", e.target.value as GenerateRequest["default_type"])}>
-                {TEST_TYPES.map((t) => (
-                  <option key={t}>{t}</option>
-                ))}
-              </select>
-            </div>
-            <label className="col-span-2 flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={form.include_rtm} onChange={(e) => set("include_rtm", e.target.checked)} /> Include RTM sheet
-            </label>
-            <button
-              type="button"
-              onClick={onGenerate}
-              disabled={busy || form.requirement_text.trim().length < 40 || !form.system_under_test.trim()}
-              className="col-span-2 rounded bg-sky-600 px-4 py-2 font-semibold text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-            >
-              {busy ? `Generating… ${elapsed}s` : "Generate test script"}
-            </button>
-            {busy && <p className="col-span-2 text-xs text-slate-500">One Claude call with a schema-constrained output. 20 to 90 seconds depending on the story size.</p>}
-          </div>
-        </div>
-      </section>
+      <main className="mx-auto max-w-[1680px] space-y-4 px-4 py-5">
+        <InputPanel
+          form={form}
+          setForm={setForm}
+          collapsed={collapsed && !!result}
+          setCollapsed={setCollapsed}
+          jiraOn={!!health?.jira}
+          onFetchJira={onFetchJira}
+          busy={busy}
+          elapsed={elapsed}
+          onGenerate={onGenerate}
+          onCancel={() => abort.current?.abort()}
+          hasResult={!!result}
+        />
 
-      {notice.length > 0 && (
-        <ul className="mb-4 list-disc rounded border border-amber-300 bg-amber-50 px-6 py-2 text-sm text-amber-900">
-          {notice.map((w, i) => (
-            <li key={i}>{w}</li>
-          ))}
-        </ul>
-      )}
+        {notice.length > 0 && <WarningList title="notes from the Jira import" items={notice} defaultOpen />}
+        {error && <ErrorAlert error={error} onDismiss={() => setError(null)} />}
 
-      {error && (
-        <pre className="mb-4 whitespace-pre-wrap rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{error}</pre>
-      )}
-
-      {/* ---------------- result ---------------- */}
-      {result && s && (
-        <>
-          <section className="mb-3 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
-            <Stat label="Cases" value={s.total_cases} />
-            <Stat label="Positive" value={s.by_class.positive} tone="emerald" />
-            <Stat label="Negative" value={s.by_class.negative} tone="rose" />
-            <Stat label="Boundary" value={s.by_class.boundary} tone="amber" />
-            <Stat label="High / Med / Low" value={`${s.by_priority.High} / ${s.by_priority.Medium} / ${s.by_priority.Low}`} />
-            <button type="button" onClick={() => setShowAc((v) => !v)} className={`rounded px-2 py-0.5 ${s.ac_uncovered.length ? "bg-rose-100 text-rose-800" : "bg-emerald-100 text-emerald-800"}`}>
-              AC covered {s.ac_covered} / {s.ac_total}
-              {s.ac_uncovered.length > 0 && ` · uncovered: ${s.ac_uncovered.join(", ")}`} {showAc ? "▴" : "▾"}
-            </button>
-            <span className="ml-auto text-xs text-slate-400">
-              {result.generation_id} · {result.model} · {result.created_at}
-            </span>
-          </section>
-
-          {showAc && (
-            <ol className="mb-3 grid gap-1 rounded border border-slate-200 bg-white p-3 text-sm md:grid-cols-2">
-              {result.acceptance_criteria.map((a) => (
-                <li key={a.id} className={`flex gap-2 rounded px-1 ${s.ac_uncovered.includes(a.id) ? "bg-rose-50" : ""}`}>
-                  <span className="shrink-0 font-mono text-xs font-semibold text-slate-500">{a.id}</span>
-                  <span>{a.text}</span>
-                </li>
-              ))}
-            </ol>
-          )}
-
-          {result.warnings.length > 0 && (
-            <ul className="mb-3 list-disc rounded border border-amber-200 bg-amber-50 px-6 py-2 text-xs text-amber-900">
-              {result.warnings.map((w, i) => (
-                <li key={i}>{w}</li>
-              ))}
-            </ul>
-          )}
-
-          <ScriptTable result={result} onChange={setResult} onRegenerate={onRegenerate} regenBusy={regenBusy} />
-
-          <section className="mt-5 grid gap-4 lg:grid-cols-[1fr_360px]">
-            <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-              <h2 className="mb-2 font-semibold">Assumptions and corrections</h2>
-              <p className="mb-3 text-xs text-slate-500">These are the questions to take back to the BA. They export to the Note sheet. Edit before exporting.</p>
-              {(["correction", "assumption", "dedup", "source"] as NoteKind[]).map((kind) => {
-                const items = result.notes.map((n, i) => ({ n, i })).filter(({ n }) => n.kind === kind);
-                if (!items.length) return null;
-                return (
-                  <div key={kind} className="mb-3">
-                    <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{NOTE_TITLES[kind]}</h3>
-                    <ul className="mt-1 divide-y divide-slate-100">
-                      {items.map(({ n, i }) => (
-                        <li key={i} className="flex gap-3 py-1 text-sm">
-                          <span className="w-28 shrink-0 font-medium text-slate-700">{n.label}</span>
-                          <textarea
-                            className="w-full resize-none rounded bg-transparent p-0.5 leading-snug outline-none hover:bg-slate-50 focus:bg-white focus:ring-1 focus:ring-sky-400"
-                            rows={Math.max(1, Math.ceil(n.detail.length / 90))}
-                            value={n.detail}
-                            onChange={(e) => setResult({ ...result, notes: result.notes.map((m, j) => (j === i ? { ...m, detail: e.target.value } : m)) })}
-                          />
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-              <h2 className="mb-2 font-semibold">Export</h2>
-              <div className="grid gap-2">
-                {(["project_name", "project_no", "created_by"] as (keyof ExportMeta)[]).map((k) => (
-                  <div key={k}>
-                    <label className={label}>{k.replace("_", " ")}</label>
-                    <input className={field} value={meta[k]} onChange={(e) => setMeta({ ...meta, [k]: e.target.value })} />
-                  </div>
-                ))}
-                <button type="button" onClick={() => onExport("xlsx")} className="rounded bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
-                  Download XLSX (RTM · Test Script · Defect List · Note)
-                </button>
-                <button type="button" onClick={() => onExport("csv")} className="rounded border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100">
-                  Download CSV (Test Script only)
-                </button>
-                {result.rtm.length > 0 && (
-                  <table className="mt-2 text-xs">
-                    <thead>
-                      <tr className="text-left text-slate-500">
-                        <th className="pr-2">Req</th>
-                        <th className="pr-2">Requirement</th>
-                        <th>Cases</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {result.rtm.map((r) => (
-                        <tr key={r.req_no} className="align-top">
-                          <td className="pr-2 font-mono">{r.req_no}</td>
-                          <td className="pr-2">{r.requirement}</td>
-                          <td className="text-right">{r.total_case}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
+        {busy ? (
+          <GeneratingState elapsed={elapsed} />
+        ) : !result || !s ? (
+          <EmptyState />
+        ) : (
+          <section className="space-y-4">
+            <div className="flex flex-wrap items-end gap-x-4">
+              <div className="min-w-0 flex-1">
+                <Tabs<TabId>
+                  value={tab}
+                  onChange={setTab}
+                  tabs={[
+                    { id: "script", label: "Script", badge: <Badge>{s.total_cases}</Badge> },
+                    {
+                      id: "coverage",
+                      label: "Coverage",
+                      badge: (
+                        <Badge tone={s.ac_uncovered.length ? "rose" : "emerald"}>
+                          {s.ac_covered}/{s.ac_total}
+                        </Badge>
+                      ),
+                    },
+                    { id: "notes", label: "Notes", badge: result.notes.length ? <Badge>{result.notes.length}</Badge> : undefined },
+                    { id: "export", label: "Export" },
+                  ]}
+                />
               </div>
+              <p className="hidden pb-2 font-mono text-[11px] text-muted xl:block" title="Generation id · model · created at">
+                {result.generation_id} · {result.model} · {result.created_at}
+              </p>
             </div>
+
+            {tab === "script" && (
+              <>
+                <SummaryCards result={result} onCoverage={() => setTab("coverage")} />
+                <WarningList title={result.warnings.length === 1 ? "validation warning" : "validation warnings"} items={result.warnings} />
+                <ScriptTable
+                  result={result}
+                  onChange={set}
+                  onRegenerate={setRegenTarget}
+                  onDeleted={(msg) => toast(msg, { action: { label: "Undo", onClick: undo } })}
+                  regenBusy={regenBusy}
+                  focusUid={focusUid}
+                  onFocused={onFocused}
+                  history={history}
+                />
+              </>
+            )}
+            {tab === "coverage" && (
+              <CoverageView
+                result={result}
+                onJump={(c) => {
+                  setTab("script");
+                  setFocusUid(c.uid ?? null);
+                }}
+              />
+            )}
+            {tab === "notes" && <NotesView result={result} onChange={(notes, key) => set({ ...result, notes }, key)} />}
+            {tab === "export" && <ExportView result={result} meta={meta} setMeta={setMeta} onExport={onExport} />}
           </section>
-        </>
+        )}
+      </main>
+
+      {regenTarget && <RegenerateModal tc={regenTarget} onSubmit={onRegenerate} onClose={() => setRegenTarget(null)} />}
+      {confirmNew && (
+        <Modal
+          title="Start a new script?"
+          onClose={() => setConfirmNew(false)}
+          footer={
+            <>
+              <Button onClick={() => setConfirmNew(false)}>Keep working</Button>
+              <Button variant="danger" onClick={onNewScript}>
+                Clear everything
+              </Button>
+            </>
+          }
+        >
+          <p className="text-sm text-muted">This clears the requirement, the generated script and your edits. Export first if you want to keep them.</p>
+        </Modal>
       )}
     </div>
-  );
-}
-
-function Stat({ label, value, tone = "slate" }: { label: string; value: number | string; tone?: "slate" | "emerald" | "rose" | "amber" }) {
-  const tones = { slate: "text-slate-800", emerald: "text-emerald-700", rose: "text-rose-700", amber: "text-amber-700" };
-  return (
-    <span>
-      <span className="text-xs text-slate-500">{label} </span>
-      <span className={`font-semibold ${tones[tone]}`}>{value}</span>
-    </span>
   );
 }

@@ -1,7 +1,76 @@
 @import "tailwindcss";
 
+/* Dark mode follows the data-theme attribute on <html>, set by useTheme (and the inline script in index.html). */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* Semantic tokens. Utilities read them through var(), so the dark block below swaps them at runtime. */
+@theme {
+  --color-page: #f5f7fa;
+  --color-surface: #ffffff;
+  --color-subtle: #f1f5f9;
+  --color-stripe: #f9fafb;
+  --color-hover: #f0f8ff;
+  --color-line: #e2e8f0;
+  --color-fg: #0f172a;
+  --color-muted: #64748b;
+  --color-accent: #0284c7;
+  --color-accent-strong: #0369a1;
+  --color-accent-soft: #e0f2fe;
+  --color-on-accent: #ffffff;
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+[data-theme="dark"] {
+  --color-page: #0b1120;
+  --color-surface: #111827;
+  --color-subtle: #1a2333;
+  --color-stripe: #141c2b;
+  --color-hover: #13263a;
+  --color-line: #273244;
+  --color-fg: #e2e8f0;
+  --color-muted: #94a3b8;
+  --color-accent: #38bdf8;
+  --color-accent-strong: #7dd3fc;
+  --color-accent-soft: #0c2a3d;
+  --color-on-accent: #04121c;
+  color-scheme: dark;
+}
+
+body {
+  background: var(--color-page);
+  color: var(--color-fg);
+  -webkit-font-smoothing: antialiased;
+}
+
 textarea,
 input,
 select {
   font: inherit;
+  color: inherit;
+}
+
+select option {
+  background: var(--color-surface);
+  color: var(--color-fg);
+}
+
+@keyframes flash {
+  from {
+    background-color: var(--color-accent-soft);
+  }
+}
+
+.row-flash > td {
+  animation: flash 1.6s ease-out;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+.toast-in {
+  animation: toast-in 0.18s ease-out;
 }
