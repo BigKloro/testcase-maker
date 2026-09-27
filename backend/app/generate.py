@@ -10,9 +10,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from string import Template
-
-import anthropic
-from anthropic.lib._parse._transform import transform_schema
+from typing import TYPE_CHECKING
 
 from .schemas import (
     CaseDraft,
@@ -28,6 +26,9 @@ from .schemas import (
     Story,
     TestCase,
 )
+
+if TYPE_CHECKING:
+    import anthropic
 
 MODEL = os.environ.get("TESTCASE_MAKER_MODEL", "claude-opus-5")
 EFFORT = os.environ.get("TESTCASE_MAKER_EFFORT", "high")  # low | medium | high | xhigh | max
@@ -77,6 +78,8 @@ _client: anthropic.Anthropic | None = None
 def _get_client() -> anthropic.Anthropic:
     global _client
     if _client is None:
+        import anthropic  # deferred: the SDK takes ~0.7s to import and mock mode / tests never call it
+
         _client = anthropic.Anthropic()  # ANTHROPIC_API_KEY from env / .env
     return _client
 
@@ -115,6 +118,9 @@ def _call(system: str, messages: list[dict], schema_model: type, max_tokens: int
         if schema_model is CaseDraft:
             data = data["groups"][0]["test_cases"][0]
         return data, "mock"
+    import anthropic
+    from anthropic.lib._parse._transform import transform_schema
+
     try:
         with _get_client().messages.stream(
             model=MODEL,
